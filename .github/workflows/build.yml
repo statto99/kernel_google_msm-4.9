@@ -1,8 +1,8 @@
 name: Build PixelExperience Kernel
 on:
-  workflow_dispatch: # Allows manual trigger from the Actions tab
+  workflow_dispatch: # Allows you to run it manually from the Actions tab
   push:
-    branches: [ thirteen, fourteen ] # Adjust to your active branch
+    branches: [ thirteen, fourteen ] # Triggers on push to these branches
 
 jobs:
   build-kernel:
@@ -16,25 +16,24 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm qemu-user-static python3 python-is-python3
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm qemu-user-static python3 python-is-python3 libarchive-tools
 
       - name: Download Toolchains
         run: |
           mkdir toolchains
           cd toolchains
-          # Clone Proton Clang (often preferred for 4.9 kernels) or AOSP Clang
+          # Proton Clang: Optimized for Android Kernels
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
-          # Clone GCC for AArch64 and ARM
+          # AOSP GCC: Required for cross-compilation headers/assembler
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
       - name: Build Kernel
         run: |
-          # Set paths to toolchains
+          # Set up the environment
           TC_DIR=$(pwd)/toolchains
           export PATH="$TC_DIR/clang/bin:$TC_DIR/gcc64/bin:$TC_DIR/gcc32/bin:$PATH"
           
-          # Build variables
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-android-
@@ -42,28 +41,35 @@ jobs:
           export CC=clang
           export CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # Configuration (using b4s4 for Pixel 3a/3a XL)
-          make O=out b4s4_defconfig
+          # Clean any previous artifacts
+          make O=out clean
+          make O=out mrproper
           
-          # Actual Compilation
+          # 1. Generate the config using the verified bonito_defconfig
+          make O=out bonito_defconfig
+          
+          # 2. Build the image (Image.gz-dtb)
           make -j$(nproc --all) O=out \
                       CC=clang \
                       CROSS_COMPILE=aarch64-linux-android- \
                       CROSS_COMPILE_ARM32=arm-linux-androideabi-
 
-      - name: Check for Output
+      - name: Check Build Output
         run: |
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "Kernel built successfully!"
+            echo "SUCCESS: Kernel image found!"
+          elif [ -f out/arch/arm64/boot/Image.gz ]; then
+            echo "SUCCESS: Image.gz found (no DTB)!"
           else
-            echo "Kernel build failed, output not found."
+            echo "ERROR: Kernel build failed. Check logs above."
             exit 1
           fi
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Pixel-Kernel-Image
+          name: Pixel-3a-Kernel
           path: |
             out/arch/arm64/boot/Image.gz-dtb
             out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/Image
