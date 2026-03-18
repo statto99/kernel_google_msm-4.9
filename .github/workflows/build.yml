@@ -1,8 +1,8 @@
 name: Build PixelExperience Kernel
 on:
-  workflow_dispatch: # Allows you to run it manually from the Actions tab
+  workflow_dispatch:
   push:
-    branches: [ thirteen, fourteen ] # Triggers on push to these branches
+    branches: [ thirteen, fourteen ]
 
 jobs:
   build-kernel:
@@ -22,48 +22,45 @@ jobs:
         run: |
           mkdir toolchains
           cd toolchains
-          # Proton Clang: Optimized for Android Kernels
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
-          # AOSP GCC: Required for cross-compilation headers/assembler
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
       - name: Build Kernel
         run: |
-          # Set up the environment
           TC_DIR=$(pwd)/toolchains
+          
+          # Add all toolchain bin directories to PATH
           export PATH="$TC_DIR/clang/bin:$TC_DIR/gcc64/bin:$TC_DIR/gcc32/bin:$PATH"
           
           export ARCH=arm64
           export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           export CC=clang
           export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
           
-          # Clean any previous artifacts
+          # Clean build environment
           make O=out clean
           make O=out mrproper
           
-          # 1. Generate the config using the verified bonito_defconfig
+          # Generate config
           make O=out bonito_defconfig
           
-          # 2. Build the image (Image.gz-dtb)
+          # THE FIX: Explicitly define the binutils to use the GCC ones
+          # This prevents the "nm not found" and "unrecognized option -EL" errors
           make -j$(nproc --all) O=out \
                       CC=clang \
+                      HOSTCC=clang \
+                      CLANG_TRIPLE=aarch64-linux-gnu- \
                       CROSS_COMPILE=aarch64-linux-android- \
-                      CROSS_COMPILE_ARM32=arm-linux-androideabi-
-
-      - name: Check Build Output
-        run: |
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "SUCCESS: Kernel image found!"
-          elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            echo "SUCCESS: Image.gz found (no DTB)!"
-          else
-            echo "ERROR: Kernel build failed. Check logs above."
-            exit 1
-          fi
+                      CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+                      LD=aarch64-linux-android-ld \
+                      AR=aarch64-linux-android-ar \
+                      OBJCOPY=aarch64-linux-android-objcopy \
+                      OBJDUMP=aarch64-linux-android-objdump \
+                      STRIP=aarch64-linux-android-strip \
+                      NM=aarch64-linux-android-nm
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
@@ -72,4 +69,3 @@ jobs:
           path: |
             out/arch/arm64/boot/Image.gz-dtb
             out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/Image
