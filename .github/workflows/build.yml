@@ -15,10 +15,9 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          # 1. Enable 32-bit support so the GCC 4.9 binaries can actually run
+          # Enable i386 so the 32-bit GCC 4.9 can run on 64-bit Ubuntu
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          # 2. Install core tools + 32-bit compatibility libraries (mandatory for Ubuntu 22.04)
           sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev \
           clang lld llvm qemu-user-static python3 python-is-python3 libarchive-tools \
           libc6-i386 lib32z1 lib32stdc++6 libncurses5:i386 libstdc++6:i386
@@ -27,9 +26,7 @@ jobs:
         run: |
           mkdir toolchains
           cd toolchains
-          # Proton Clang
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
-          # GCC 4.9
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
@@ -39,14 +36,12 @@ jobs:
           OUT_DIR=$ROOT_DIR/out
           TC_DIR=$ROOT_DIR/toolchains
           
-          # Absolute paths to avoid "not found" issues
+          # Use absolute paths to be safe
           CLANG_BIN=$TC_DIR/clang/bin
           GCC64_BIN=$TC_DIR/gcc64/bin
           GCC32_BIN=$TC_DIR/gcc32/bin
           
-          # Update PATH
-          export PATH="$CLANG_BIN:$GCC64_BIN:$GCC32_BIN:$PATH"
-          
+          # ARCH and SUBARCH
           export ARCH=arm64
           export SUBARCH=arm64
           
@@ -56,10 +51,10 @@ jobs:
           make O=$OUT_DIR bonito_defconfig
           
           # THE FIX:
-          # 1. AS=aarch64-linux-android-as forces the build to use the REAL GNU assembler 
-          #    instead of the Clang wrapper, fixing the "-EL" error.
-          # 2. NM, LD, OBJCOPY etc. are forced to GCC to avoid binary mismatches.
-          # 3. CC=clang remains for the actual C code optimization.
+          # 1. We put GCC paths FIRST in the PATH during execution so 'as' finds GCC, not Clang.
+          # 2. We explicitly set AS and LD to the GCC versions.
+          # 3. We use 'CROSS_COMPILE_ARM32' for the VDSO32 components.
+          PATH="$GCC64_BIN:$GCC32_BIN:$CLANG_BIN:$PATH" \
           make -j$(nproc --all) O=$OUT_DIR \
                       CC=clang \
                       HOSTCC=clang \
@@ -67,9 +62,9 @@ jobs:
                       CROSS_COMPILE=aarch64-linux-android- \
                       CROSS_COMPILE_ARM32=arm-linux-androideabi- \
                       AS=aarch64-linux-android-as \
-                      NM=aarch64-linux-android-nm \
                       LD=aarch64-linux-android-ld \
                       AR=aarch64-linux-android-ar \
+                      NM=aarch64-linux-android-nm \
                       OBJCOPY=aarch64-linux-android-objcopy \
                       OBJDUMP=aarch64-linux-android-objdump \
                       STRIP=aarch64-linux-android-strip
