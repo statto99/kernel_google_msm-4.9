@@ -15,15 +15,21 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
+          # Add i386 architecture for 32-bit toolchain support
+          sudo dpkg --add-architecture i386
           sudo apt-get update
-          # CRITICAL: Added libc6-i386 and lib32z1 to run the 32-bit GCC 4.9 binaries
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm qemu-user-static python3 python-is-python3 libarchive-tools libc6-i386 lib32ncurses5 lib32z1
+          # Install correct 22.04 compatibility packages
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev \
+          clang lld llvm qemu-user-static python3 python-is-python3 libarchive-tools \
+          libc6-i386 lib32z1 lib32stdc++6 libncurses5:i386 libstdc++6:i386
 
       - name: Download Toolchains
         run: |
           mkdir toolchains
           cd toolchains
+          # Proton Clang
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          # GCC 4.9 for Binutils and VDSO
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
@@ -33,29 +39,27 @@ jobs:
           OUT_DIR=$ROOT_DIR/out
           TC_DIR=$ROOT_DIR/toolchains
           
-          # Absolute paths to ensure no confusion
+          # Setup Toolchain Paths
           CLANG_BIN=$TC_DIR/clang/bin
           GCC64_BIN=$TC_DIR/gcc64/bin
           GCC32_BIN=$TC_DIR/gcc32/bin
           
-          # Path configuration: Keep GCC bins available but let Clang stay at the front
+          # Prioritize Clang but keep GCC available
           export PATH="$CLANG_BIN:$GCC64_BIN:$GCC32_BIN:$PATH"
           
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_COMPILER_STRING="$($CLANG_BIN/clang --version | head -n 1)"
           
-          # Clean build environment
+          # Clean and Config
           make O=$OUT_DIR clean
           make O=$OUT_DIR mrproper
-          
-          # Generate config
           make O=$OUT_DIR bonito_defconfig
           
           # THE FIX:
-          # 1. CC=clang uses Proton Clang for C code.
-          # 2. AS and LD are pointed specifically to GCC to avoid the "-EL" error.
-          # 3. CROSS_COMPILE_ARM32 is set for the VDSO32 layer.
+          # 1. We use the GCC Binutils (AS, LD, NM) to avoid the "-EL" and "not found" errors.
+          # 2. CC=clang uses Proton Clang for the heavy lifting.
+          # 3. CROSS_COMPILE_ARM32 is essential for the VDSO32 compatibility layer.
           make -j$(nproc --all) O=$OUT_DIR \
                       CC=clang \
                       HOSTCC=clang \
