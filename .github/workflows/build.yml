@@ -15,10 +15,10 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          # Add i386 architecture for 32-bit toolchain support
+          # Add i386 architecture to support 32-bit GCC 4.9 binaries
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          # Install correct 22.04 compatibility packages
+          # Install core build tools and 32-bit compatibility libraries for Ubuntu 22.04
           sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev \
           clang lld llvm qemu-user-static python3 python-is-python3 libarchive-tools \
           libc6-i386 lib32z1 lib32stdc++6 libncurses5:i386 libstdc++6:i386
@@ -27,9 +27,9 @@ jobs:
         run: |
           mkdir toolchains
           cd toolchains
-          # Proton Clang
+          # Proton Clang for the C compiler
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
-          # GCC 4.9 for Binutils and VDSO
+          # GCC 4.9 for Binutils (Assembler, Linker, NM)
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
@@ -39,12 +39,12 @@ jobs:
           OUT_DIR=$ROOT_DIR/out
           TC_DIR=$ROOT_DIR/toolchains
           
-          # Setup Toolchain Paths
+          # Setup paths
           CLANG_BIN=$TC_DIR/clang/bin
           GCC64_BIN=$TC_DIR/gcc64/bin
           GCC32_BIN=$TC_DIR/gcc32/bin
           
-          # Prioritize Clang but keep GCC available
+          # Add toolchains to PATH
           export PATH="$CLANG_BIN:$GCC64_BIN:$GCC32_BIN:$PATH"
           
           export ARCH=arm64
@@ -57,9 +57,10 @@ jobs:
           make O=$OUT_DIR bonito_defconfig
           
           # THE FIX:
-          # 1. We use the GCC Binutils (AS, LD, NM) to avoid the "-EL" and "not found" errors.
-          # 2. CC=clang uses Proton Clang for the heavy lifting.
-          # 3. CROSS_COMPILE_ARM32 is essential for the VDSO32 compatibility layer.
+          # 1. CC=clang: Use Clang for C compilation.
+          # 2. CROSS_COMPILE: Points to GCC 4.9 for the main kernel binutils.
+          # 3. CROSS_COMPILE_ARM32: Points to GCC 32-bit for the VDSO32 layer.
+          # 4. AS/LD/NM/etc: Explicitly forced to GCC to avoid the Clang "-EL" error.
           make -j$(nproc --all) O=$OUT_DIR \
                       CC=clang \
                       HOSTCC=clang \
