@@ -15,9 +15,10 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
+          # 1. Enable 32-bit architecture for the legacy GCC toolchain
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          # Install 32-bit compatibility libs so the GCC 4.9 toolchain can execute
+          # 2. Install dependencies + 32-bit compatibility libraries for Ubuntu 22.04
           sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev \
           clang lld llvm qemu-user-static python3 python-is-python3 libarchive-tools \
           libc6-i386 lib32z1 lib32stdc++6 libncurses5:i386 libstdc++6:i386
@@ -26,7 +27,9 @@ jobs:
         run: |
           mkdir toolchains
           cd toolchains
+          # Proton Clang
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          # GCC 4.9 (64-bit and 32-bit)
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
@@ -41,7 +44,7 @@ jobs:
           GCC64_BIN=$TC_DIR/gcc64/bin
           GCC32_BIN=$TC_DIR/gcc32/bin
           
-          # Prioritize Clang bin but keep GCC available in PATH
+          # Add to PATH (Clang first, then GCC)
           export PATH="$CLANG_BIN:$GCC64_BIN:$GCC32_BIN:$PATH"
           
           export ARCH=arm64
@@ -53,9 +56,9 @@ jobs:
           make O=$OUT_DIR bonito_defconfig
           
           # THE FIX: 
-          # 1. We force AS to use the GCC assembler to fix the "-EL" error.
-          # 2. We use GCC for LD/NM/OBJCOPY to ensure compatibility with 4.9 kernel.
-          # 3. We use Clang only for the C compiler (CC).
+          # 1. Force AS to use the GCC assembler to stop the "-EL" error.
+          # 2. Force LD/NM/OBJCOPY to use GCC for 4.9 kernel compatibility.
+          # 3. CC=clang still uses Proton Clang for the actual C compilation.
           make -j$(nproc --all) O=$OUT_DIR \
                       CC=clang \
                       HOSTCC=clang \
