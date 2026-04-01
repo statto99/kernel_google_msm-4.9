@@ -28,39 +28,41 @@ jobs:
 
       - name: Build Kernel
         run: |
-          TC_DIR=$(pwd)/toolchains
+          # Use absolute paths for stability
+          ROOT_DIR=$(pwd)
+          TC_DIR=$ROOT_DIR/toolchains
+          OUT_DIR=$ROOT_DIR/out
           
-          # Add all toolchain bin directories to PATH
+          # Add toolchains to PATH
           export PATH="$TC_DIR/clang/bin:$TC_DIR/gcc64/bin:$TC_DIR/gcc32/bin:$PATH"
           
+          # Setup Build Variables
           export ARCH=arm64
           export SUBARCH=arm64
-          export CC=clang
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          export KBUILD_COMPILER_STRING="$(clang --version | head -n 1)"
           
-          # Clean build environment
-          make O=out clean
-          make O=out mrproper
+          # Clean and Config
+          make O=$OUT_DIR clean
+          make O=$OUT_DIR mrproper
+          make O=$OUT_DIR bonito_defconfig
           
-          # Generate config
-          make O=out bonito_defconfig
-          
-          # THE FIX: Explicitly define the binutils to use the GCC ones
-          # This prevents the "nm not found" and "unrecognized option -EL" errors
-          make -j$(nproc --all) O=out \
+          # THE FIX: 
+          # 1. Use LLVM binutils (llvm-nm, ld.lld) for the main 64-bit kernel
+          # 2. Pass CROSS_COMPILE_ARM32 for the 32-bit VDSO
+          # 3. Use CLANG_TRIPLE to help Clang understand the target architecture
+          make -j$(nproc --all) O=$OUT_DIR \
                       CC=clang \
                       HOSTCC=clang \
+                      AR=llvm-ar \
+                      NM=llvm-nm \
+                      LD=ld.lld \
+                      OBJCOPY=llvm-objcopy \
+                      OBJDUMP=llvm-objdump \
+                      STRIP=llvm-strip \
                       CLANG_TRIPLE=aarch64-linux-gnu- \
                       CROSS_COMPILE=aarch64-linux-android- \
                       CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-                      LD=aarch64-linux-android-ld \
-                      AR=aarch64-linux-android-ar \
-                      OBJCOPY=aarch64-linux-android-objcopy \
-                      OBJDUMP=aarch64-linux-android-objdump \
-                      STRIP=aarch64-linux-android-strip \
-                      NM=aarch64-linux-android-nm
+                      HOSTCFLAGS="-fuse-ld=lld -Wno-unused-command-line-argument"
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
