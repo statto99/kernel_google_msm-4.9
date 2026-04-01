@@ -22,47 +22,53 @@ jobs:
         run: |
           mkdir toolchains
           cd toolchains
+          # Proton Clang for the main compiler
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          # GCC 64-bit and 32-bit for Binutils (LD, NM, OBJCOPY) and VDSO
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
       - name: Build Kernel
         run: |
-          # Use absolute paths for stability
           ROOT_DIR=$(pwd)
-          TC_DIR=$ROOT_DIR/toolchains
           OUT_DIR=$ROOT_DIR/out
+          TC_DIR=$ROOT_DIR/toolchains
           
-          # Add toolchains to PATH
-          export PATH="$TC_DIR/clang/bin:$TC_DIR/gcc64/bin:$TC_DIR/gcc32/bin:$PATH"
+          # Define absolute paths to toolchain binaries
+          CLANG_BIN=$TC_DIR/clang/bin
+          GCC64_BIN=$TC_DIR/gcc64/bin
+          GCC32_BIN=$TC_DIR/gcc32/bin
           
-          # Setup Build Variables
+          # Add Clang to PATH so the build system finds 'clang'
+          export PATH="$CLANG_BIN:$PATH"
+          
           export ARCH=arm64
           export SUBARCH=arm64
-          export KBUILD_COMPILER_STRING="$(clang --version | head -n 1)"
+          export KBUILD_COMPILER_STRING="$($CLANG_BIN/clang --version | head -n 1)"
           
-          # Clean and Config
+          # Clean build environment
           make O=$OUT_DIR clean
           make O=$OUT_DIR mrproper
+          
+          # Generate config (Bonito is Pixel 3a)
           make O=$OUT_DIR bonito_defconfig
           
-          # THE FIX: 
-          # 1. Use LLVM binutils (llvm-nm, ld.lld) for the main 64-bit kernel
-          # 2. Pass CROSS_COMPILE_ARM32 for the 32-bit VDSO
-          # 3. Use CLANG_TRIPLE to help Clang understand the target architecture
+          # THE FIX:
+          # 1. We use absolute paths for CROSS_COMPILE to ensure "nm" and "ld" are found.
+          # 2. We use the GCC linker (LD) because MSM-4.9 kernels often fail with modern LLD.
+          # 3. We point CROSS_COMPILE_ARM32 to the 32-bit GCC to fix the VDSO32 -EL error.
           make -j$(nproc --all) O=$OUT_DIR \
                       CC=clang \
                       HOSTCC=clang \
-                      AR=llvm-ar \
-                      NM=llvm-nm \
-                      LD=ld.lld \
-                      OBJCOPY=llvm-objcopy \
-                      OBJDUMP=llvm-objdump \
-                      STRIP=llvm-strip \
                       CLANG_TRIPLE=aarch64-linux-gnu- \
-                      CROSS_COMPILE=aarch64-linux-android- \
-                      CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-                      HOSTCFLAGS="-fuse-ld=lld -Wno-unused-command-line-argument"
+                      CROSS_COMPILE=$GCC64_BIN/aarch64-linux-android- \
+                      CROSS_COMPILE_ARM32=$GCC32_BIN/arm-linux-androideabi- \
+                      LD=$GCC64_BIN/aarch64-linux-android-ld \
+                      AR=$GCC64_BIN/aarch64-linux-android-ar \
+                      NM=$GCC64_BIN/aarch64-linux-android-nm \
+                      OBJCOPY=$GCC64_BIN/aarch64-linux-android-objcopy \
+                      OBJDUMP=$GCC64_BIN/aarch64-linux-android-objdump \
+                      STRIP=$GCC64_BIN/aarch64-linux-android-strip
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
@@ -70,4 +76,4 @@ jobs:
           name: Pixel-3a-Kernel
           path: |
             out/arch/arm64/boot/Image.gz-dtb
-            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/dtbo.img
